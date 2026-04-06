@@ -48,7 +48,11 @@ YYYY_MM_DD_HHMM_NN.jpg
 ## CLI オプション
 
 ```
-Usage: jpegrm [options] [directory]
+Usage: jpegrm [options] [directory] [pattern]
+
+Arguments:
+  directory  対象ディレクトリ (省略時: カレントディレクトリ)
+  pattern    ファイル名フィルタ (glob形式, 省略時: 全JPEGファイル)
 
 Options:
   -n    プレビューのみ（実際にはリネームしない）
@@ -58,6 +62,10 @@ Options:
 
 - `directory` は省略時カレントディレクトリ
 - `-r` なしの場合は指定ディレクトリ直下のみ走査
+- `pattern` は glob 形式でファイル名をフィルタする（大文字小文字不問）
+  - `*.*` または省略: 全JPEG ファイル
+  - `DSC*`: DSC で始まるファイル
+  - `DSC1234`: `DSC1234.jpg` のみ（ワイルドカード・拡張子なしの場合は自動で `.*` を付与）
 
 ## エラーハンドリング
 

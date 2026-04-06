@@ -13,27 +13,37 @@ JPEG ファイルの EXIF 撮影日時を読み取り、以下の形式にリネ
 
 
 ■ セットアップ
-1. jpegrm.exe を好きな場所に置く（例: C:\Users\<ユーザー名>\tools\）
-2. インストール不要。ダブルクリックではなくコマンドプロンプトから使います
+1. jpegrm-setup.exe を実行してインストール（管理者権限不要）
+2. jpegrm.exe が C:\Program Files\jpegrm\ に配置され、PATH に自動追加されます
+3. インストール後、コマンドプロンプトまたは PowerShell から使えます
 
 
 ■ 使い方
+
+  jpegrm.exe [options] [directory] [pattern]
+
 コマンドプロンプト (cmd) または PowerShell を開いて実行します。
 
   ドライラン（プレビュー、実際にはリネームしない）:
-    jpegrm.exe -n C:\Users\<ユーザー名>\Pictures\photos
+    jpegrm.exe -n C:\Users\gaola\OneDrive\画像\G16インポート
 
-  実行:
-    jpegrm.exe C:\Users\<ユーザー名>\Pictures\photos
+  全JPEGをリネーム:
+    jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート
+
+  *.* で全JPEG（上と同じ）:
+    jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート *.*
+
+  DSC1234.jpg だけリネーム:
+    jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート DSC1234
+
+  DSC で始まるファイルだけリネーム:
+    jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート "DSC*"
 
   サブフォルダも含めて処理:
-    jpegrm.exe -r C:\Users\<ユーザー名>\Pictures\photos
+    jpegrm.exe -r C:\Users\gaola\OneDrive\画像\G16インポート
 
   詳細表示（スキップしたファイルも表示）:
-    jpegrm.exe -v C:\Users\<ユーザー名>\Pictures\photos
-
-  組み合わせ:
-    jpegrm.exe -n -r -v C:\Users\<ユーザー名>\Pictures\photos
+    jpegrm.exe -v C:\Users\gaola\OneDrive\画像\G16インポート
 
 
 ■ オプション一覧

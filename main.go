@@ -51,14 +51,32 @@ func isJPEG(name string) bool {
 	return ext == ".jpg" || ext == ".jpeg"
 }
 
-func collectFiles(dir string, rec bool) ([]string, error) {
+func normalizePattern(pattern string) string {
+	if pattern == "" || pattern == "*" || pattern == "*.*" {
+		return "*"
+	}
+	if !strings.ContainsAny(pattern, "*?[") && !strings.Contains(pattern, ".") {
+		return pattern + ".*"
+	}
+	return pattern
+}
+
+func matchesPattern(filename, pattern string) bool {
+	if pattern == "*" {
+		return true
+	}
+	matched, _ := filepath.Match(strings.ToLower(pattern), strings.ToLower(filename))
+	return matched
+}
+
+func collectFiles(dir string, rec bool, pattern string) ([]string, error) {
 	var files []string
 	if rec {
 		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
-			if !info.IsDir() && isJPEG(info.Name()) {
+			if !info.IsDir() && isJPEG(info.Name()) && matchesPattern(info.Name(), pattern) {
 				files = append(files, path)
 			}
 			return nil
@@ -72,7 +90,7 @@ func collectFiles(dir string, rec bool) ([]string, error) {
 			return nil, err
 		}
 		for _, e := range entries {
-			if !e.IsDir() && isJPEG(e.Name()) {
+			if !e.IsDir() && isJPEG(e.Name()) && matchesPattern(e.Name(), pattern) {
 				files = append(files, filepath.Join(dir, e.Name()))
 			}
 		}
@@ -158,14 +176,24 @@ func execute(plan []renamePair, dry bool) int {
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] [directory]\n\nEXIF撮影日時でJPEGファイルをリネーム (YYYY_MM_DD_HHMM_NN.jpg)\n\nOptions:\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] [directory] [pattern]\n\nEXIF撮影日時でJPEGファイルをリネーム (YYYY_MM_DD_HHMM_NN.jpg)\n\nArguments:\n  directory  対象ディレクトリ (省略時: カレントディレクトリ)\n  pattern    ファイル名フィルタ (glob形式, 省略時: 全JPEGファイル)\n             例: \"DSC*\" \"IMG_001?\" \"DSC1234\" \"*.*\"\n\nOptions:\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
 	dir := "."
-	if flag.NArg() > 0 {
+	pattern := "*"
+	if flag.NArg() >= 1 {
 		dir = flag.Arg(0)
+	}
+	if flag.NArg() >= 2 {
+		pattern = flag.Arg(1)
+	}
+	pattern = normalizePattern(pattern)
+
+	if _, err := filepath.Match(pattern, "test"); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Invalid pattern: %s\n", pattern)
+		os.Exit(1)
 	}
 
 	info, err := os.Stat(dir)
@@ -174,13 +202,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	files, err := collectFiles(dir, *recursive)
+	files, err := collectFiles(dir, *recursive, pattern)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		os.Exit(1)
 	}
 	if len(files) == 0 {
-		fmt.Println("No JPEG files found.")
+		if pattern != "*" {
+			fmt.Printf("No JPEG files matching pattern '%s' found.\n", pattern)
+		} else {
+			fmt.Println("No JPEG files found.")
+		}
 		return
 	}
 
