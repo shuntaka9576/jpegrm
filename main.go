@@ -176,7 +176,7 @@ func execute(plan []renamePair, dry bool) int {
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] [directory] [pattern]\n\nEXIF撮影日時でJPEGファイルをリネーム (YYYY_MM_DD_HHMM_NN.jpg)\n\nArguments:\n  directory  対象ディレクトリ (省略時: カレントディレクトリ)\n  pattern    ファイル名フィルタ (glob形式, 省略時: 全JPEGファイル)\n             例: \"DSC*\" \"IMG_001?\" \"DSC1234\" \"*.*\"\n\nOptions:\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] [path]\n\nEXIF撮影日時でJPEGファイルをリネーム (YYYY_MM_DD_HHMM_NN.jpg)\n\nArguments:\n  path  対象ディレクトリ、またはディレクトリ+パターン (省略時: カレントディレクトリ)\n        例: C:\\Photos          全JPEGファイル\n            C:\\Photos\\*.*      全JPEGファイル\n            C:\\Photos\\DSC1234  DSC1234.jpg のみ\n            C:\\Photos\\DSC*     DSC で始まるファイル\n\nOptions:\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -184,12 +184,15 @@ func main() {
 	dir := "."
 	pattern := "*"
 	if flag.NArg() >= 1 {
-		dir = flag.Arg(0)
+		arg := flag.Arg(0)
+		info, err := os.Stat(arg)
+		if err == nil && info.IsDir() {
+			dir = arg
+		} else {
+			dir = filepath.Dir(arg)
+			pattern = normalizePattern(filepath.Base(arg))
+		}
 	}
-	if flag.NArg() >= 2 {
-		pattern = flag.Arg(1)
-	}
-	pattern = normalizePattern(pattern)
 
 	if _, err := filepath.Match(pattern, "test"); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: Invalid pattern: %s\n", pattern)

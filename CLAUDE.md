@@ -48,11 +48,7 @@ YYYY_MM_DD_HHMM_NN.jpg
 ## CLI オプション
 
 ```
-Usage: jpegrm [options] [directory] [pattern]
-
-Arguments:
-  directory  対象ディレクトリ (省略時: カレントディレクトリ)
-  pattern    ファイル名フィルタ (glob形式, 省略時: 全JPEGファイル)
+Usage: jpegrm [options] [path]
 
 Options:
   -n    プレビューのみ（実際にはリネームしない）
@@ -60,12 +56,14 @@ Options:
   -v    スキップしたファイル等の詳細表示
 ```
 
-- `directory` は省略時カレントディレクトリ
+- `path` はディレクトリ、またはディレクトリ+パターン（省略時カレントディレクトリ）
+  - `C:\Photos` → ディレクトリ内の全JPEG
+  - `C:\Photos\*.*` → 全JPEG（上と同じ）
+  - `C:\Photos\DSC1234` → `DSC1234.jpg` のみ（拡張子なしは自動で `.*` を付与）
+  - `C:\Photos\DSC*` → DSC で始まるファイル
+- パスがディレクトリとして存在すればそのまま使用、存在しなければ末尾をパターンとして分離
+- パターンは glob 形式、大文字小文字不問
 - `-r` なしの場合は指定ディレクトリ直下のみ走査
-- `pattern` は glob 形式でファイル名をフィルタする（大文字小文字不問）
-  - `*.*` または省略: 全JPEG ファイル
-  - `DSC*`: DSC で始まるファイル
-  - `DSC1234`: `DSC1234.jpg` のみ（ワイルドカード・拡張子なしの場合は自動で `.*` を付与）
 
 ## エラーハンドリング
 
@@ -74,7 +72,7 @@ Options:
 | EXIF なし / 日時タグなし / 日時形式不正 | スキップ (`-v` で表示) |
 | ファイルを開けない | スキップ (`-v` で表示) |
 | ディレクトリが存在しない | stderr にエラー出力、exit code 1 |
-| JPEG ファイルが見つからない | `No JPEG files found.` を表示して正常終了 |
+| JPEG ファイルが見つからない | `No JPEG files found.` を表示して正常終了（パターン指定時は `No JPEG files matching pattern '...' found.`） |
 | リネーム対象がない | `No files to rename.` を表示して正常終了 |
 | リネーム時の OS エラー | stderr にエラー出力、残りのファイルは続行 |
 

@@ -145,7 +145,7 @@ func TestCollectFiles(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, "c.png"), []byte{}, 0644)
 		os.WriteFile(filepath.Join(dir, "d.txt"), []byte{}, 0644)
 
-		files, err := collectFiles(dir, false)
+		files, err := collectFiles(dir, false, "*")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -161,7 +161,7 @@ func TestCollectFiles(t *testing.T) {
 		createTestJPEG(t, filepath.Join(dir, "a.jpg"), "2024:01:01 00:00:00")
 		createTestJPEG(t, filepath.Join(sub, "b.jpg"), "2024:01:01 00:00:00")
 
-		files, err := collectFiles(dir, true)
+		files, err := collectFiles(dir, true, "*")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -177,7 +177,7 @@ func TestCollectFiles(t *testing.T) {
 		createTestJPEG(t, filepath.Join(dir, "a.jpg"), "2024:01:01 00:00:00")
 		createTestJPEG(t, filepath.Join(sub, "b.jpg"), "2024:01:01 00:00:00")
 
-		files, err := collectFiles(dir, false)
+		files, err := collectFiles(dir, false, "*")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -189,7 +189,7 @@ func TestCollectFiles(t *testing.T) {
 	t.Run("empty directory", func(t *testing.T) {
 		dir := t.TempDir()
 
-		files, err := collectFiles(dir, false)
+		files, err := collectFiles(dir, false, "*")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -204,7 +204,7 @@ func TestCollectFiles(t *testing.T) {
 		createTestJPEG(t, filepath.Join(dir, "a.jpg"), "2024:01:01 00:00:00")
 		createTestJPEG(t, filepath.Join(dir, "b.jpg"), "2024:01:01 00:00:00")
 
-		files, err := collectFiles(dir, false)
+		files, err := collectFiles(dir, false, "*")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -216,9 +216,83 @@ func TestCollectFiles(t *testing.T) {
 	})
 
 	t.Run("non-existent directory", func(t *testing.T) {
-		_, err := collectFiles(filepath.Join(t.TempDir(), "nonexistent"), false)
+		_, err := collectFiles(filepath.Join(t.TempDir(), "nonexistent"), false, "*")
 		if err == nil {
 			t.Error("expected error for non-existent directory")
+		}
+	})
+}
+
+func TestNormalizePattern(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", "*"},
+		{"*", "*"},
+		{"*.*", "*"},
+		{"DSC1234", "DSC1234.*"},
+		{"DSC*", "DSC*"},
+		{"DSC1234.jpg", "DSC1234.jpg"},
+		{"IMG_00[0-9]?", "IMG_00[0-9]?"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := normalizePattern(tt.input); got != tt.want {
+				t.Errorf("normalizePattern(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMatchesPattern(t *testing.T) {
+	tests := []struct {
+		filename string
+		pattern  string
+		want     bool
+	}{
+		{"DSC1234.jpg", "*", true},
+		{"DSC1234.jpg", "DSC1234.*", true},
+		{"DSC1234.jpg", "DSC*", true},
+		{"IMG_0001.jpg", "DSC*", false},
+		{"DSC1234.JPG", "dsc1234.*", true},
+		{"dsc1234.jpg", "DSC1234.*", true},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s/%s", tt.filename, tt.pattern), func(t *testing.T) {
+			if got := matchesPattern(tt.filename, tt.pattern); got != tt.want {
+				t.Errorf("matchesPattern(%q, %q) = %v, want %v", tt.filename, tt.pattern, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCollectFilesWithPattern(t *testing.T) {
+	t.Run("pattern filters files", func(t *testing.T) {
+		dir := t.TempDir()
+		createTestJPEG(t, filepath.Join(dir, "DSC1234.jpg"), "2024:01:01 00:00:00")
+		createTestJPEG(t, filepath.Join(dir, "IMG_0001.jpg"), "2024:01:01 00:00:00")
+
+		files, err := collectFiles(dir, false, "DSC*")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(files) != 1 {
+			t.Errorf("got %d files, want 1", len(files))
+		}
+	})
+
+	t.Run("normalized bare name matches", func(t *testing.T) {
+		dir := t.TempDir()
+		createTestJPEG(t, filepath.Join(dir, "DSC1234.jpg"), "2024:01:01 00:00:00")
+		createTestJPEG(t, filepath.Join(dir, "DSC5678.jpg"), "2024:01:01 00:00:00")
+
+		files, err := collectFiles(dir, false, normalizePattern("DSC1234"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(files) != 1 {
+			t.Errorf("got %d files, want 1", len(files))
 		}
 	})
 }

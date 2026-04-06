@@ -89,7 +89,7 @@ jobs:
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
           $testDir = Join-Path $env:RUNNER_TEMP "test-jpegrm"
           echo "=== Test 2: Pattern DSC1234 (single file) ==="
-          jpegrm -n $testDir DSC1234
+          jpegrm -n (Join-Path $testDir "DSC1234")
           echo ""
           echo "Expected: only DSC1234.jpg listed"
         shell: pwsh
@@ -99,7 +99,7 @@ jobs:
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
           $testDir = Join-Path $env:RUNNER_TEMP "test-jpegrm"
           echo "=== Test 3: Pattern DSC* ==="
-          jpegrm -n $testDir "DSC*"
+          jpegrm -n "$testDir\DSC*"
           echo ""
           echo "Expected: DSC1234.jpg, DSC5678.jpg, DSC9999.JPG listed"
         shell: pwsh
@@ -109,7 +109,7 @@ jobs:
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
           $testDir = Join-Path $env:RUNNER_TEMP "test-jpegrm"
           echo "=== Test 4: Pattern *.* (all files) ==="
-          jpegrm -n $testDir "*.*"
+          jpegrm -n "$testDir\*.*"
           echo ""
           echo "Expected: all JPEG files listed (same as no pattern)"
         shell: pwsh
@@ -129,7 +129,7 @@ jobs:
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
           $testDir = Join-Path $env:RUNNER_TEMP "test-jpegrm"
           echo "=== Test 6: Rename DSC* only ==="
-          jpegrm $testDir "DSC*"
+          jpegrm "$testDir\DSC*"
           echo ""
           echo "--- Files after rename ---"
           Get-ChildItem $testDir -File | ForEach-Object { $_.Name } | Sort-Object

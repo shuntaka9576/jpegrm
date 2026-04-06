@@ -20,7 +20,7 @@ JPEG ファイルの EXIF 撮影日時を読み取り、以下の形式にリネ
 
 ■ 使い方
 
-  jpegrm.exe [options] [directory] [pattern]
+  jpegrm.exe [options] [path]
 
 コマンドプロンプト (cmd) または PowerShell を開いて実行します。
 
@@ -31,13 +31,13 @@ JPEG ファイルの EXIF 撮影日時を読み取り、以下の形式にリネ
     jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート
 
   *.* で全JPEG（上と同じ）:
-    jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート *.*
+    jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート\*.*
 
   DSC1234.jpg だけリネーム:
-    jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート DSC1234
+    jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート\DSC1234
 
   DSC で始まるファイルだけリネーム:
-    jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート "DSC*"
+    jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート\DSC*
 
   サブフォルダも含めて処理:
     jpegrm.exe -r C:\Users\gaola\OneDrive\画像\G16インポート
