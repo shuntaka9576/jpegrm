@@ -19,8 +19,86 @@ jobs:
       - name: Build installer
         run: iscc installer.iss
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Install via installer
+        run: dist/jpegrm-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+        shell: cmd
+
+      - name: Verify installation
+        run: |
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+          jpegrm -h
+        shell: pwsh
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          name: jpegrm-setup
-          path: dist/jpegrm-setup.exe
+          python-version: "3.12"
+
+      - name: Create test JPEG with EXIF
+        run: |
+          pip install pillow piexif
+          python -c "
+          from PIL import Image
+          import piexif
+          import os
+
+          test_dir = os.path.join(os.environ['RUNNER_TEMP'], 'test-jpegrm')
+          os.makedirs(test_dir, exist_ok=True)
+
+          def create_jpeg(filename, date_str):
+              img = Image.new('RGB', (100, 100), color='red')
+              exif_dict = {'Exif': {piexif.ExifIFD.DateTimeOriginal: date_str.encode()}}
+              exif_bytes = piexif.dump(exif_dict)
+              path = os.path.join(test_dir, filename)
+              img.save(path, 'JPEG', exif=exif_bytes)
+              print(f'Created: {filename} (EXIF: {date_str})')
+
+          create_jpeg('IMG_0001.jpg', '2024:03:15 14:30:45')
+          create_jpeg('IMG_0002.jpg', '2024:03:15 14:30:45')
+          create_jpeg('IMG_0003.JPG', '2024:12:25 09:00:00')
+          create_jpeg('photo.jpeg', '2025:06:15 18:45:30')
+
+          img_no_exif = Image.new('RGB', (100, 100), color='blue')
+          img_no_exif.save(os.path.join(test_dir, 'no_exif.jpg'), 'JPEG')
+          print('Created: no_exif.jpg (no EXIF)')
+          "
+        shell: pwsh
+
+      - name: Run jpegrm dry-run
+        run: |
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+          $testDir = Join-Path $env:RUNNER_TEMP "test-jpegrm"
+          echo "=== Before rename ==="
+          Get-ChildItem $testDir | ForEach-Object { $_.Name }
+          echo ""
+          echo "=== Dry run ==="
+          jpegrm -n -v $testDir
+        shell: pwsh
+
+      - name: Run jpegrm rename
+        run: |
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+          $testDir = Join-Path $env:RUNNER_TEMP "test-jpegrm"
+          echo "=== Rename ==="
+          jpegrm -v $testDir
+          echo ""
+          echo "=== After rename ==="
+          Get-ChildItem $testDir | ForEach-Object { $_.Name }
+        shell: pwsh
+
+      - name: Verify results
+        run: |
+          $testDir = Join-Path $env:RUNNER_TEMP "test-jpegrm"
+          $files = (Get-ChildItem $testDir).Name | Sort-Object
+          $expected = @("2024_03_15_1430_00.jpg", "2024_03_15_1430_01.jpg", "2024_12_25_0900_00.jpg", "2025_06_15_1845_00.jpg", "no_exif.jpg")
+
+          echo "Expected: $($expected -join ', ')"
+          echo "Actual:   $($files -join ', ')"
+
+          if (Compare-Object $expected $files) {
+            echo "FAIL: File names do not match!"
+            exit 1
+          } else {
+            echo "PASS: All files renamed correctly!"
+          }
+        shell: pwsh
