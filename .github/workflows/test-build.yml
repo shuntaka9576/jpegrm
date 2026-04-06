@@ -20,8 +20,8 @@ jobs:
         run: iscc installer.iss
 
       - name: Install via installer
-        run: dist/jpegrm-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-        shell: cmd
+        run: .\dist\jpegrm-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+        shell: pwsh
 
       - name: Verify installation
         run: |
