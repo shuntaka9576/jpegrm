@@ -32,6 +32,7 @@ JPEG ファイルの EXIF 撮影日時を読み取り、以下の形式にリネ
 
   *.* で全JPEG（上と同じ）:
     jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート\*.*
+    ※ 依頼仕様では G16インポート*.* でしたが、フォルダ名との境界を判別できないため \ 区切りに変更
 
   DSC1234.jpg だけリネーム:
     jpegrm.exe C:\Users\gaola\OneDrive\画像\G16インポート\DSC1234
