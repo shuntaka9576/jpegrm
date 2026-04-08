@@ -46,13 +46,19 @@ jobs:
           sub_dir = os.path.join(test_dir, 'sub')
           os.makedirs(sub_dir, exist_ok=True)
 
-          def create_jpeg(directory, filename, date_str):
+          def create_jpeg(directory, filename, date_str, make_name=None, model_name=None):
               img = Image.new('RGB', (100, 100), color='red')
               exif_dict = {'Exif': {piexif.ExifIFD.DateTimeOriginal: date_str.encode()}}
+              if make_name or model_name:
+                  exif_dict['0th'] = {}
+                  if make_name:
+                      exif_dict['0th'][piexif.ImageIFD.Make] = make_name.encode()
+                  if model_name:
+                      exif_dict['0th'][piexif.ImageIFD.Model] = model_name.encode()
               exif_bytes = piexif.dump(exif_dict)
               path = os.path.join(directory, filename)
               img.save(path, 'JPEG', exif=exif_bytes)
-              print(f'Created: {os.path.relpath(path, test_dir)} (EXIF: {date_str})')
+              print(f'Created: {os.path.relpath(path, test_dir)} (EXIF: {date_str}, Make: {make_name}, Model: {model_name})')
 
           # Main directory files
           create_jpeg(test_dir, 'DSC1234.jpg', '2024:03:15 14:30:45')
@@ -70,6 +76,14 @@ jobs:
           # Subdirectory files
           create_jpeg(sub_dir, 'DSC0001.jpg', '2024:07:04 12:00:00')
           create_jpeg(sub_dir, 'IMG_0010.jpg', '2024:08:15 15:30:00')
+
+          # Suffix test directory
+          sfx_dir = os.path.join(os.environ['RUNNER_TEMP'], 'test-jpegrm-suffix')
+          os.makedirs(sfx_dir, exist_ok=True)
+          create_jpeg(sfx_dir, 'CAM_A_001.jpg', '2024:03:15 14:30:00', 'SONY', 'ZV-E10M2')
+          create_jpeg(sfx_dir, 'CAM_A_002.jpg', '2024:03:15 14:30:00', 'SONY', 'ZV-E10M2')
+          create_jpeg(sfx_dir, 'CAM_B_001.jpg', '2024:03:15 14:30:00', 'Canon', 'EOS R5')
+          create_jpeg(sfx_dir, 'CAM_B_002.jpg', '2024:06:01 10:00:00', 'Canon', 'EOS R5')
           "
         shell: pwsh
 
@@ -214,4 +228,50 @@ jobs:
           jpegrm -v $testDir
           echo ""
           echo "Expected: 'No files to rename.' or all skipped"
+        shell: pwsh
+
+      - name: "Test 10: Suffix - manual string (-s EOS)"
+        run: |
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+          $sfxDir = Join-Path $env:RUNNER_TEMP "test-jpegrm-suffix"
+          echo "=== Test 10: Manual suffix (-s EOS) dry run ==="
+          jpegrm -n -s EOS $sfxDir
+        shell: pwsh
+
+      - name: "Test 11: Suffix - EXIF %model template"
+        run: |
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+          $sfxDir = Join-Path $env:RUNNER_TEMP "test-jpegrm-suffix"
+          echo "=== Test 11: EXIF %model template dry run ==="
+          jpegrm -n -s %model $sfxDir
+        shell: pwsh
+
+      - name: "Test 12: Suffix - rename with %model"
+        run: |
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+          $sfxDir = Join-Path $env:RUNNER_TEMP "test-jpegrm-suffix"
+          echo "=== Test 12: Rename with %model suffix ==="
+          jpegrm -s %model $sfxDir
+          echo ""
+          echo "--- Files after rename ---"
+          Get-ChildItem $sfxDir -File | ForEach-Object { $_.Name } | Sort-Object
+        shell: pwsh
+
+      - name: "Verify Test 12: %model suffix applied correctly"
+        run: |
+          $sfxDir = Join-Path $env:RUNNER_TEMP "test-jpegrm-suffix"
+          $files = (Get-ChildItem $sfxDir -File).Name | Sort-Object
+          # CAM_A_001.jpg (SONY ZV-E10M2, 14:30) -> 2024_03_15_1430_00_ZV-E10M2.jpg
+          # CAM_A_002.jpg (SONY ZV-E10M2, 14:30) -> 2024_03_15_1430_01_ZV-E10M2.jpg
+          # CAM_B_001.jpg (Canon EOS R5, 14:30)   -> 2024_03_15_1430_00_EOS-R5.jpg
+          # CAM_B_002.jpg (Canon EOS R5, 10:00)   -> 2024_06_01_1000_00_EOS-R5.jpg
+          $expected = @("2024_03_15_1430_00_EOS-R5.jpg", "2024_03_15_1430_00_ZV-E10M2.jpg", "2024_03_15_1430_01_ZV-E10M2.jpg", "2024_06_01_1000_00_EOS-R5.jpg")
+          echo "Expected: $($expected -join ', ')"
+          echo "Actual:   $($files -join ', ')"
+          if (Compare-Object $expected $files) {
+            echo "FAIL: Test 12 verification failed!"
+            exit 1
+          } else {
+            echo "PASS: %model suffix applied correctly!"
+          }
         shell: pwsh
