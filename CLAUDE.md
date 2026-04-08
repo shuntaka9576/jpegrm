@@ -9,7 +9,8 @@ JPEG ファイルの EXIF メタデータから撮影日時を読み取り、統
 ## リネーム形式
 
 ```
-YYYY_MM_DD_HHMM_NN.jpg
+YYYY_MM_DD_HHMM_NN.jpg          (サフィックスなし)
+YYYY_MM_DD_HHMM_NN_SUFFIX.jpg   (-s 指定時)
 ```
 
 - `YYYY` - 年 (4桁)
@@ -17,9 +18,13 @@ YYYY_MM_DD_HHMM_NN.jpg
 - `DD` - 日 (2桁ゼロ埋め)
 - `HHMM` - 時分 (4桁、秒は含まない)
 - `NN` - 連番 (2桁ゼロ埋め、`_00` から開始)
+- `SUFFIX` - カメラ識別子等のサフィックス (`-s` オプション指定時のみ付与)
 - 拡張子は常に小文字 `.jpg` に正規化
 
-例: `IMG_0001.jpg` → `2024_03_15_1430_00.jpg`
+例:
+- `IMG_0001.jpg` → `2024_03_15_1430_00.jpg`
+- `IMG_0001.jpg` → `2024_03_15_1430_00_EOS.jpg` (`-s EOS` 指定時)
+- `DSC00391.JPG` → `2025_10_21_1833_00_ZV-E10M2.jpg` (`-s %model` 指定時)
 
 ## EXIF タグ優先順位
 
@@ -51,10 +56,31 @@ YYYY_MM_DD_HHMM_NN.jpg
 Usage: jpegrm [options] [path]
 
 Options:
-  -n    プレビューのみ（実際にはリネームしない）
-  -r    サブディレクトリも走査
-  -v    スキップしたファイル等の詳細表示
+  -n              プレビューのみ（実際にはリネームしない）
+  -r              サブディレクトリも走査
+  -s / -suffix    サフィックス文字列（テンプレート変数対応）
+  -v              スキップしたファイル等の詳細表示
 ```
+
+### サフィックス (`-s`) の使い方
+
+手動指定とEXIFテンプレート変数の両方に対応。
+
+```
+jpegrm -s EOS .               手動: 全ファイルに _EOS を付与
+jpegrm -s %model .            EXIF Model値 (例: _ZV-E10M2, _iPhone-15)
+jpegrm -s %make .             EXIF Make値 (例: _SONY, _Apple)
+jpegrm -s %make_%model .      組み合わせ (例: _SONY_ZV-E10M2)
+```
+
+テンプレート変数:
+- `%make` - カメラメーカー (EXIF Make タグ)
+- `%model` - カメラ機種名 (EXIF Model タグ)
+
+サフィックスのサニタイズ:
+- スペースはハイフン (`-`) に変換
+- ファイル名に使えない文字は除去 (英数字, ハイフン, アンダースコアのみ許可)
+- EXIF に Make/Model が存在しない場合、対応するテンプレート変数は空文字に置換
 
 - `path` はディレクトリ、またはディレクトリ+パターン（省略時カレントディレクトリ）
   - `C:\Photos` → ディレクトリ内の全JPEG

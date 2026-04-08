@@ -54,6 +54,95 @@ func createTestJPEG(t *testing.T, path string, dateTime string) {
 	}
 }
 
+// createTestJPEGFull creates a minimal JPEG file with EXIF DateTimeOriginal, Make, and Model.
+func createTestJPEGFull(t *testing.T, path string, dateTime string, makeName string, modelName string) {
+	t.Helper()
+
+	dateBytes := append([]byte(dateTime), 0x00)
+	makeBytes := append([]byte(makeName), 0x00)
+	modelBytes := append([]byte(modelName), 0x00)
+
+	// IFD0: 3 entries (Make, Model, ExifIFD pointer)
+	// Each IFD entry: 12 bytes. IFD overhead: 2 (count) + 4 (next IFD offset)
+	// IFD0 starts at offset 8
+	// IFD0 size: 2 + 3*12 + 4 = 42 bytes → IFD0 ends at 50
+	// ExifIFD starts at offset 50
+	// ExifIFD size: 2 + 1*12 + 4 = 18 bytes → ExifIFD ends at 68
+	// Data area starts at offset 68
+
+	makeOffset := uint32(68)
+	modelOffset := makeOffset + uint32(len(makeBytes))
+	dateOffset := modelOffset + uint32(len(modelBytes))
+
+	tiff := []byte{
+		// Header: "II" (little endian), magic 42, offset to IFD0 = 8
+		0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00,
+		// IFD0: 3 entries
+		0x03, 0x00,
+	}
+
+	// Entry 1: Make (tag=0x010F, type=ASCII=2)
+	makeEntry := []byte{
+		0x0F, 0x01, 0x02, 0x00,
+		byte(len(makeBytes)), byte(len(makeBytes) >> 8), byte(len(makeBytes) >> 16), byte(len(makeBytes) >> 24),
+		byte(makeOffset), byte(makeOffset >> 8), byte(makeOffset >> 16), byte(makeOffset >> 24),
+	}
+	tiff = append(tiff, makeEntry...)
+
+	// Entry 2: Model (tag=0x0110, type=ASCII=2)
+	modelEntry := []byte{
+		0x10, 0x01, 0x02, 0x00,
+		byte(len(modelBytes)), byte(len(modelBytes) >> 8), byte(len(modelBytes) >> 16), byte(len(modelBytes) >> 24),
+		byte(modelOffset), byte(modelOffset >> 8), byte(modelOffset >> 16), byte(modelOffset >> 24),
+	}
+	tiff = append(tiff, modelEntry...)
+
+	// Entry 3: ExifIFD pointer (tag=0x8769, type=LONG=4, count=1, value=50)
+	exifEntry := []byte{
+		0x69, 0x87, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00,
+	}
+	tiff = append(tiff, exifEntry...)
+
+	// Next IFD offset = 0
+	tiff = append(tiff, 0x00, 0x00, 0x00, 0x00)
+
+	// ExifIFD at offset 50: 1 entry
+	tiff = append(tiff, 0x01, 0x00)
+
+	// Entry: DateTimeOriginal (tag=0x9003, type=ASCII=2, count=20)
+	dateEntry := []byte{
+		0x03, 0x90, 0x02, 0x00, 0x14, 0x00, 0x00, 0x00,
+		byte(dateOffset), byte(dateOffset >> 8), byte(dateOffset >> 16), byte(dateOffset >> 24),
+	}
+	tiff = append(tiff, dateEntry...)
+
+	// Next IFD offset = 0
+	tiff = append(tiff, 0x00, 0x00, 0x00, 0x00)
+
+	// Data area
+	tiff = append(tiff, makeBytes...)
+	tiff = append(tiff, modelBytes...)
+	tiff = append(tiff, dateBytes...)
+
+	exifHeader := append([]byte("Exif"), 0x00, 0x00)
+	app1Payload := append(exifHeader, tiff...)
+	app1Len := uint16(len(app1Payload) + 2)
+
+	var jpeg []byte
+	jpeg = append(jpeg, 0xFF, 0xD8)
+	jpeg = append(jpeg, 0xFF, 0xE1)
+	jpeg = append(jpeg, byte(app1Len>>8), byte(app1Len&0xFF))
+	jpeg = append(jpeg, app1Payload...)
+	jpeg = append(jpeg, 0xFF, 0xD9)
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, jpeg, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // createJPEGNoExif creates a minimal JPEG file without EXIF data.
 func createJPEGNoExif(t *testing.T, path string) {
 	t.Helper()
@@ -91,19 +180,19 @@ func TestIsJPEG(t *testing.T) {
 	}
 }
 
-func TestParseExifDate(t *testing.T) {
+func TestParseExif(t *testing.T) {
 	t.Run("valid DateTimeOriginal", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "test.jpg")
 		createTestJPEG(t, path, "2024:03:15 14:30:00")
 
-		got, err := parseExifDate(path)
+		got, err := parseExif(path)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		want := time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC)
-		if !got.Equal(want) {
-			t.Errorf("got %v, want %v", got, want)
+		if !got.date.Equal(want) {
+			t.Errorf("got %v, want %v", got.date, want)
 		}
 	})
 
@@ -112,14 +201,14 @@ func TestParseExifDate(t *testing.T) {
 		path := filepath.Join(dir, "noexif.jpg")
 		createJPEGNoExif(t, path)
 
-		_, err := parseExifDate(path)
+		_, err := parseExif(path)
 		if err == nil {
 			t.Error("expected error for JPEG without EXIF")
 		}
 	})
 
 	t.Run("non-existent file", func(t *testing.T) {
-		_, err := parseExifDate(filepath.Join(t.TempDir(), "nonexistent.jpg"))
+		_, err := parseExif(filepath.Join(t.TempDir(), "nonexistent.jpg"))
 		if err == nil {
 			t.Error("expected error for non-existent file")
 		}
@@ -130,7 +219,7 @@ func TestParseExifDate(t *testing.T) {
 		path := filepath.Join(dir, "test.txt")
 		os.WriteFile(path, []byte("hello world"), 0644)
 
-		_, err := parseExifDate(path)
+		_, err := parseExif(path)
 		if err == nil {
 			t.Error("expected error for non-JPEG file")
 		}
@@ -303,7 +392,7 @@ func TestBuildPlan(t *testing.T) {
 		src := filepath.Join(dir, "IMG_0001.jpg")
 		createTestJPEG(t, src, "2024:03:15 14:30:00")
 
-		plan := buildPlan([]string{src}, false)
+		plan := buildPlan([]string{src}, false, "")
 
 		if len(plan) != 1 {
 			t.Fatalf("got %d pairs, want 1", len(plan))
@@ -328,7 +417,7 @@ func TestBuildPlan(t *testing.T) {
 			createTestJPEG(t, f, "2024:03:15 14:30:00")
 		}
 
-		plan := buildPlan(files, false)
+		plan := buildPlan(files, false, "")
 
 		if len(plan) != 3 {
 			t.Fatalf("got %d pairs, want 3", len(plan))
@@ -346,7 +435,7 @@ func TestBuildPlan(t *testing.T) {
 		src := filepath.Join(dir, "2024_03_15_1430_00.jpg")
 		createTestJPEG(t, src, "2024:03:15 14:30:00")
 
-		plan := buildPlan([]string{src}, false)
+		plan := buildPlan([]string{src}, false, "")
 
 		if len(plan) != 0 {
 			t.Errorf("got %d pairs, want 0 (already named correctly)", len(plan))
@@ -358,7 +447,7 @@ func TestBuildPlan(t *testing.T) {
 		src := filepath.Join(dir, "noexif.jpg")
 		createJPEGNoExif(t, src)
 
-		plan := buildPlan([]string{src}, false)
+		plan := buildPlan([]string{src}, false, "")
 
 		if len(plan) != 0 {
 			t.Errorf("got %d pairs, want 0", len(plan))
@@ -374,7 +463,7 @@ func TestBuildPlan(t *testing.T) {
 		src := filepath.Join(dir, "IMG_0001.jpg")
 		createTestJPEG(t, src, "2024:03:15 14:30:00")
 
-		plan := buildPlan([]string{src}, false)
+		plan := buildPlan([]string{src}, false, "")
 
 		if len(plan) != 1 {
 			t.Fatalf("got %d pairs, want 1", len(plan))
@@ -394,7 +483,7 @@ func TestBuildPlan(t *testing.T) {
 		createTestJPEG(t, files[0], "2024:03:15 10:00:00")
 		createTestJPEG(t, files[1], "2024:03:15 11:00:00")
 
-		plan := buildPlan(files, false)
+		plan := buildPlan(files, false, "")
 
 		if len(plan) != 2 {
 			t.Fatalf("got %d pairs, want 2", len(plan))
@@ -414,7 +503,7 @@ func TestBuildPlan(t *testing.T) {
 		createTestJPEG(t, valid, "2024:06:01 09:00:00")
 		createJPEGNoExif(t, invalid)
 
-		plan := buildPlan([]string{invalid, valid}, false)
+		plan := buildPlan([]string{invalid, valid}, false, "")
 
 		if len(plan) != 1 {
 			t.Fatalf("got %d pairs, want 1", len(plan))
@@ -514,4 +603,209 @@ func TestFileExists(t *testing.T) {
 	if fileExists(filepath.Join(dir, "nonexistent.txt")) {
 		t.Error("fileExists() = true for non-existing file")
 	}
+}
+
+func TestParseExifMakeModel(t *testing.T) {
+	t.Run("reads Make and Model from EXIF", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "test.jpg")
+		createTestJPEGFull(t, path, "2024:03:15 14:30:00", "SONY", "ZV-E10M2")
+
+		info, err := parseExif(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if info.make != "SONY" {
+			t.Errorf("make = %q, want %q", info.make, "SONY")
+		}
+		if info.model != "ZV-E10M2" {
+			t.Errorf("model = %q, want %q", info.model, "ZV-E10M2")
+		}
+		want := time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC)
+		if !info.date.Equal(want) {
+			t.Errorf("date = %v, want %v", info.date, want)
+		}
+	})
+
+	t.Run("Make/Model empty when not present", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "test.jpg")
+		createTestJPEG(t, path, "2024:03:15 14:30:00")
+
+		info, err := parseExif(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if info.make != "" {
+			t.Errorf("make = %q, want empty", info.make)
+		}
+		if info.model != "" {
+			t.Errorf("model = %q, want empty", info.model)
+		}
+	})
+}
+
+func TestResolveSuffix(t *testing.T) {
+	info := exifInfo{
+		date:  time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC),
+		make:  "SONY",
+		model: "ZV-E10M2",
+	}
+
+	tests := []struct {
+		name string
+		tmpl string
+		want string
+	}{
+		{"empty template", "", ""},
+		{"literal suffix", "EOS", "EOS"},
+		{"model template", "%model", "ZV-E10M2"},
+		{"make template", "%make", "SONY"},
+		{"combined", "%make_%model", "SONY_ZV-E10M2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveSuffix(tt.tmpl, info)
+			if got != tt.want {
+				t.Errorf("resolveSuffix(%q) = %q, want %q", tt.tmpl, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("make with spaces is sanitized", func(t *testing.T) {
+		infoSpaces := exifInfo{
+			date:  time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC),
+			make:  "NIKON CORPORATION",
+			model: "NIKON Z 50",
+		}
+		got := resolveSuffix("%make_%model", infoSpaces)
+		if got != "NIKON-CORPORATION_NIKON-Z-50" {
+			t.Errorf("got %q, want %q", got, "NIKON-CORPORATION_NIKON-Z-50")
+		}
+	})
+
+	t.Run("empty Make/Model in template", func(t *testing.T) {
+		infoEmpty := exifInfo{
+			date: time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC),
+		}
+		got := resolveSuffix("%model", infoEmpty)
+		if got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+}
+
+func TestSanitizeSuffix(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"EOS", "EOS"},
+		{"ZV-E10M2", "ZV-E10M2"},
+		{"NIKON Z 50", "NIKON-Z-50"},
+		{"Canon/EOS", "CanonEOS"},
+		{"a<b>c:d", "abcd"},
+		{"hello world!", "hello-world"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := sanitizeSuffix(tt.input)
+			if got != tt.want {
+				t.Errorf("sanitizeSuffix(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildPlanWithSuffix(t *testing.T) {
+	t.Run("manual suffix appended to filename", func(t *testing.T) {
+		dir := t.TempDir()
+		src := filepath.Join(dir, "IMG_0001.jpg")
+		createTestJPEG(t, src, "2024:03:15 14:30:00")
+
+		plan := buildPlan([]string{src}, false, "EOS")
+
+		if len(plan) != 1 {
+			t.Fatalf("got %d pairs, want 1", len(plan))
+		}
+		wantDst := filepath.Join(dir, "2024_03_15_1430_00_EOS.jpg")
+		if plan[0].dst != wantDst {
+			t.Errorf("dst = %q, want %q", plan[0].dst, wantDst)
+		}
+	})
+
+	t.Run("model template resolved from EXIF", func(t *testing.T) {
+		dir := t.TempDir()
+		src := filepath.Join(dir, "IMG_0001.jpg")
+		createTestJPEGFull(t, src, "2024:03:15 14:30:00", "SONY", "ZV-E10M2")
+
+		plan := buildPlan([]string{src}, false, "%model")
+
+		if len(plan) != 1 {
+			t.Fatalf("got %d pairs, want 1", len(plan))
+		}
+		wantDst := filepath.Join(dir, "2024_03_15_1430_00_ZV-E10M2.jpg")
+		if plan[0].dst != wantDst {
+			t.Errorf("dst = %q, want %q", plan[0].dst, wantDst)
+		}
+	})
+
+	t.Run("duplicate timestamps with suffix get sequential numbers", func(t *testing.T) {
+		dir := t.TempDir()
+		files := []string{
+			filepath.Join(dir, "a.jpg"),
+			filepath.Join(dir, "b.jpg"),
+		}
+		for _, f := range files {
+			createTestJPEG(t, f, "2024:03:15 14:30:00")
+		}
+
+		plan := buildPlan(files, false, "EOS")
+
+		if len(plan) != 2 {
+			t.Fatalf("got %d pairs, want 2", len(plan))
+		}
+		if filepath.Base(plan[0].dst) != "2024_03_15_1430_00_EOS.jpg" {
+			t.Errorf("plan[0] dst = %q, want 2024_03_15_1430_00_EOS.jpg", filepath.Base(plan[0].dst))
+		}
+		if filepath.Base(plan[1].dst) != "2024_03_15_1430_01_EOS.jpg" {
+			t.Errorf("plan[1] dst = %q, want 2024_03_15_1430_01_EOS.jpg", filepath.Base(plan[1].dst))
+		}
+	})
+
+	t.Run("disk collision with suffix increments sequence", func(t *testing.T) {
+		dir := t.TempDir()
+		collision := filepath.Join(dir, "2024_03_15_1430_00_EOS.jpg")
+		os.WriteFile(collision, []byte("existing"), 0644)
+
+		src := filepath.Join(dir, "IMG_0001.jpg")
+		createTestJPEG(t, src, "2024:03:15 14:30:00")
+
+		plan := buildPlan([]string{src}, false, "EOS")
+
+		if len(plan) != 1 {
+			t.Fatalf("got %d pairs, want 1", len(plan))
+		}
+		wantDst := filepath.Join(dir, "2024_03_15_1430_01_EOS.jpg")
+		if plan[0].dst != wantDst {
+			t.Errorf("dst = %q, want %q", plan[0].dst, wantDst)
+		}
+	})
+
+	t.Run("make_model combined template", func(t *testing.T) {
+		dir := t.TempDir()
+		src := filepath.Join(dir, "IMG_0001.jpg")
+		createTestJPEGFull(t, src, "2024:03:15 14:30:00", "SONY", "ZV-E10M2")
+
+		plan := buildPlan([]string{src}, false, "%make_%model")
+
+		if len(plan) != 1 {
+			t.Fatalf("got %d pairs, want 1", len(plan))
+		}
+		wantDst := filepath.Join(dir, "2024_03_15_1430_00_SONY_ZV-E10M2.jpg")
+		if plan[0].dst != wantDst {
+			t.Errorf("dst = %q, want %q", plan[0].dst, wantDst)
+		}
+	})
 }

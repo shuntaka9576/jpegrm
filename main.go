@@ -18,32 +18,81 @@ var (
 	verbose   = flag.Bool("v", false, "スキップしたファイル等の詳細表示")
 )
 
-func parseExifDate(path string) (time.Time, error) {
+var suffix string
+
+func init() {
+	flag.StringVar(&suffix, "s", "", "サフィックス（%make, %model でEXIF値に置換）")
+	flag.StringVar(&suffix, "suffix", "", "サフィックス（%make, %model でEXIF値に置換）")
+}
+
+type exifInfo struct {
+	date  time.Time
+	make  string
+	model string
+}
+
+func parseExif(path string) (exifInfo, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return time.Time{}, err
+		return exifInfo{}, err
 	}
 	defer f.Close()
 
 	x, err := exif.Decode(f)
 	if err != nil {
-		return time.Time{}, err
+		return exifInfo{}, err
 	}
 
+	var dt time.Time
+	found := false
 	for _, tag := range []exif.FieldName{exif.DateTimeOriginal, exif.DateTimeDigitized, exif.DateTime} {
 		t, err := x.Get(tag)
 		if err != nil {
 			continue
 		}
 		s := strings.Trim(t.String(), "\"")
-		dt, err := time.Parse("2006:01:02 15:04:05", s)
+		parsed, err := time.Parse("2006:01:02 15:04:05", s)
 		if err != nil {
 			continue
 		}
-		return dt, nil
+		dt = parsed
+		found = true
+		break
+	}
+	if !found {
+		return exifInfo{}, fmt.Errorf("no date tag")
 	}
 
-	return time.Time{}, fmt.Errorf("no date tag")
+	info := exifInfo{date: dt}
+	if t, err := x.Get(exif.Make); err == nil {
+		info.make = strings.TrimSpace(strings.Trim(t.String(), "\""))
+	}
+	if t, err := x.Get(exif.Model); err == nil {
+		info.model = strings.TrimSpace(strings.Trim(t.String(), "\""))
+	}
+
+	return info, nil
+}
+
+func resolveSuffix(tmpl string, info exifInfo) string {
+	if tmpl == "" {
+		return ""
+	}
+	s := tmpl
+	s = strings.ReplaceAll(s, "%make", info.make)
+	s = strings.ReplaceAll(s, "%model", info.model)
+	return sanitizeSuffix(s)
+}
+
+func sanitizeSuffix(s string) string {
+	s = strings.ReplaceAll(s, " ", "-")
+	var buf strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			buf.WriteRune(r)
+		}
+	}
+	return buf.String()
 }
 
 func isJPEG(name string) bool {
@@ -104,12 +153,12 @@ type renamePair struct {
 	dst string
 }
 
-func buildPlan(files []string, verb bool) []renamePair {
+func buildPlan(files []string, verb bool, sfx string) []renamePair {
 	var plan []renamePair
 	nameCount := map[string]int{}
 
 	for _, src := range files {
-		dt, err := parseExifDate(src)
+		info, err := parseExif(src)
 		if err != nil {
 			if verb {
 				fmt.Fprintf(os.Stderr, "SKIP: %s: %v\n", filepath.Base(src), err)
@@ -117,20 +166,35 @@ func buildPlan(files []string, verb bool) []renamePair {
 			continue
 		}
 
-		base := dt.Format("2006_01_02_1504")
+		base := info.date.Format("2006_01_02_1504")
+		resolved := resolveSuffix(sfx, info)
 		dir := filepath.Dir(src)
 
-		if _, ok := nameCount[base]; !ok {
-			nameCount[base] = 0
-		} else {
-			nameCount[base]++
+		key := base
+		if resolved != "" {
+			key = base + "_" + resolved
 		}
 
-		candidate := fmt.Sprintf("%s_%02d.jpg", base, nameCount[base])
+		if _, ok := nameCount[key]; !ok {
+			nameCount[key] = 0
+		} else {
+			nameCount[key]++
+		}
+
+		var candidate string
+		if resolved != "" {
+			candidate = fmt.Sprintf("%s_%02d_%s.jpg", base, nameCount[key], resolved)
+		} else {
+			candidate = fmt.Sprintf("%s_%02d.jpg", base, nameCount[key])
+		}
 		dst := filepath.Join(dir, candidate)
 		for dst != src && fileExists(dst) {
-			nameCount[base]++
-			candidate = fmt.Sprintf("%s_%02d.jpg", base, nameCount[base])
+			nameCount[key]++
+			if resolved != "" {
+				candidate = fmt.Sprintf("%s_%02d_%s.jpg", base, nameCount[key], resolved)
+			} else {
+				candidate = fmt.Sprintf("%s_%02d.jpg", base, nameCount[key])
+			}
 			dst = filepath.Join(dir, candidate)
 		}
 
@@ -176,7 +240,7 @@ func execute(plan []renamePair, dry bool) int {
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] [path]\n\nEXIF撮影日時でJPEGファイルをリネーム (YYYY_MM_DD_HHMM_NN.jpg)\n\nArguments:\n  path  対象ディレクトリ、またはディレクトリ+パターン (省略時: カレントディレクトリ)\n        例: C:\\Photos          全JPEGファイル\n            C:\\Photos\\*.*      全JPEGファイル\n            C:\\Photos\\DSC1234  DSC1234.jpg のみ\n            C:\\Photos\\DSC*     DSC で始まるファイル\n\nOptions:\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] [path]\n\nEXIF撮影日時でJPEGファイルをリネーム (YYYY_MM_DD_HHMM_NN.jpg)\n\nArguments:\n  path  対象ディレクトリ、またはディレクトリ+パターン (省略時: カレントディレクトリ)\n        例: C:\\Photos          全JPEGファイル\n            C:\\Photos\\*.*      全JPEGファイル\n            C:\\Photos\\DSC1234  DSC1234.jpg のみ\n            C:\\Photos\\DSC*     DSC で始まるファイル\n\nSuffix templates:\n  %%make   カメラメーカー (例: SONY, Canon)\n  %%model  カメラ機種名 (例: ZV-E10M2, EOS R5)\n  例: -s %%model  → 2024_03_15_1430_00_ZV-E10M2.jpg\n      -s EOS     → 2024_03_15_1430_00_EOS.jpg\n\nOptions:\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -219,7 +283,7 @@ func main() {
 		return
 	}
 
-	plan := buildPlan(files, *verbose)
+	plan := buildPlan(files, *verbose, suffix)
 	if len(plan) == 0 {
 		fmt.Println("No files to rename.")
 		return
