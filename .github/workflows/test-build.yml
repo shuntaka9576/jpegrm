@@ -77,13 +77,19 @@ jobs:
           create_jpeg(sub_dir, 'DSC0001.jpg', '2024:07:04 12:00:00')
           create_jpeg(sub_dir, 'IMG_0010.jpg', '2024:08:15 15:30:00')
 
-          # Suffix test directory
+          # Suffix test directory (%model)
           sfx_dir = os.path.join(os.environ['RUNNER_TEMP'], 'test-jpegrm-suffix')
           os.makedirs(sfx_dir, exist_ok=True)
           create_jpeg(sfx_dir, 'CAM_A_001.jpg', '2024:03:15 14:30:00', 'SONY', 'ZV-E10M2')
           create_jpeg(sfx_dir, 'CAM_A_002.jpg', '2024:03:15 14:30:00', 'SONY', 'ZV-E10M2')
           create_jpeg(sfx_dir, 'CAM_B_001.jpg', '2024:03:15 14:30:00', 'Canon', 'EOS R5')
           create_jpeg(sfx_dir, 'CAM_B_002.jpg', '2024:06:01 10:00:00', 'Canon', 'EOS R5')
+
+          # Suffix test directory (%make_%model)
+          sfx2_dir = os.path.join(os.environ['RUNNER_TEMP'], 'test-jpegrm-suffix2')
+          os.makedirs(sfx2_dir, exist_ok=True)
+          create_jpeg(sfx2_dir, 'A.jpg', '2024:03:15 14:30:00', 'SONY', 'ZV-E10M2')
+          create_jpeg(sfx2_dir, 'B.jpg', '2024:03:15 14:30:00', 'Canon', 'EOS R5')
           "
         shell: pwsh
 
@@ -273,5 +279,33 @@ jobs:
             exit 1
           } else {
             echo "PASS: %model suffix applied correctly!"
+          }
+        shell: pwsh
+
+      - name: "Test 13: Suffix - rename with %make_%model"
+        run: |
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+          $sfx2Dir = Join-Path $env:RUNNER_TEMP "test-jpegrm-suffix2"
+          echo "=== Test 13: Rename with %make_%model suffix ==="
+          jpegrm -s %make_%model $sfx2Dir
+          echo ""
+          echo "--- Files after rename ---"
+          Get-ChildItem $sfx2Dir -File | ForEach-Object { $_.Name } | Sort-Object
+        shell: pwsh
+
+      - name: "Verify Test 13: %make_%model suffix applied correctly"
+        run: |
+          $sfx2Dir = Join-Path $env:RUNNER_TEMP "test-jpegrm-suffix2"
+          $files = (Get-ChildItem $sfx2Dir -File).Name | Sort-Object
+          # A.jpg (SONY ZV-E10M2, 14:30) -> 2024_03_15_1430_00_SONY_ZV-E10M2.jpg
+          # B.jpg (Canon EOS R5, 14:30)   -> 2024_03_15_1430_00_Canon_EOS-R5.jpg
+          $expected = @("2024_03_15_1430_00_Canon_EOS-R5.jpg", "2024_03_15_1430_00_SONY_ZV-E10M2.jpg")
+          echo "Expected: $($expected -join ', ')"
+          echo "Actual:   $($files -join ', ')"
+          if (Compare-Object $expected $files) {
+            echo "FAIL: Test 13 verification failed!"
+            exit 1
+          } else {
+            echo "PASS: %make_%model suffix applied correctly!"
           }
         shell: pwsh
