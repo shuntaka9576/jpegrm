@@ -707,6 +707,11 @@ func TestSanitizeSuffix(t *testing.T) {
 		{"a<b>c:d", "abcd"},
 		{"hello world!", "hello-world"},
 		{"", ""},
+		{"なす", "なす"},
+		{"なす カメラ", "なす-カメラ"},
+		{"café", "café"},
+		{"なす!?<>/", "なす"},
+		{"日本語_SONY", "日本語_SONY"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

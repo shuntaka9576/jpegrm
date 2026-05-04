@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/rwcarlsen/goexif/exif"
 )
@@ -88,7 +89,10 @@ func sanitizeSuffix(s string) string {
 	s = strings.ReplaceAll(s, " ", "-")
 	var buf strings.Builder
 	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+		switch {
+		case r == '-' || r == '_':
+			buf.WriteRune(r)
+		case unicode.IsLetter(r), unicode.IsDigit(r), unicode.IsMark(r):
 			buf.WriteRune(r)
 		}
 	}
